@@ -1,0 +1,4 @@
+use.multisig::multisig
+begin
+    exec.multisig::authenticate_consumption
+end

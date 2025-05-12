@@ -2,7 +2,9 @@ use std::{fs, path::Path};
 
 use miden_client::{
     Client, ClientError,
-    account::{AccountBuilder, AccountStorageMode, AccountType, StorageSlot},
+    account::{
+        AccountBuilder, AccountStorageMode, AccountType, StorageSlot, component::BasicWallet,
+    },
 };
 use miden_crypto::{Felt, Word, ZERO};
 use miden_lib::transaction::TransactionKernel;
@@ -60,7 +62,8 @@ pub async fn build_multisig(
         .anchor((&anchor_block).try_into().unwrap())
         .account_type(AccountType::RegularAccountUpdatableCode)
         .storage_mode(AccountStorageMode::Public)
-        .with_component(account_component);
+        .with_component(account_component)
+        .with_component(BasicWallet);
 
     let (account, seed) = builder.build().unwrap();
     client.add_account(&account, Some(seed), false).await?;

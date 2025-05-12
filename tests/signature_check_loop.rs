@@ -1,24 +1,26 @@
 use std::{fs, path::Path};
 
 use miden_client::{
-    ClientError, Felt, Word, crypto::SecretKey, rpc::Endpoint,
+    ClientError, Felt, Word, ZERO, asset::FungibleAsset, crypto::SecretKey,
+    keystore::FilesystemKeyStore, note::NoteType, rpc::Endpoint,
     transaction::TransactionRequestBuilder,
 };
 
+use miden_client::crypto::FeltRng;
 use miden_client_tools::{
-    create_library, create_tx_script, delete_keystore_and_store, instantiate_client,
+    create_exact_p2id_note, create_library, create_tx_script, delete_keystore_and_store,
+    instantiate_client, mint_from_faucet_for_account, setup_accounts_and_faucets,
 };
 use miden_crypto::{FieldElement, dsa::rpo_falcon512::Polynomial, hash::rpo::Rpo256 as Hasher};
+use miden_multisig::common::build_multisig;
 use miden_objects::vm::AdviceMap;
 use tokio::time::Instant;
-
-use miden_multisig::common::build_multisig;
 
 #[tokio::test]
 async fn signature_check_loop_test() -> Result<(), ClientError> {
     delete_keystore_and_store(None).await;
 
-    let endpoint = Endpoint::testnet();
+    let endpoint = Endpoint::localhost();
     let mut client = instantiate_client(endpoint, None).await.unwrap();
 
     let sync_summary = client.sync_state().await.unwrap();
@@ -49,31 +51,114 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
 
     let account_code = fs::read_to_string(Path::new("./masm/accounts/multisig.masm")).unwrap();
 
-    let account_component_lib =
-        create_library(account_code, "external_contract::signature_check_contract").unwrap();
+    let account_component_lib = create_library(account_code, "multisig::multisig").unwrap();
 
-    let tx_script = create_tx_script(script_code, Some(account_component_lib)).unwrap();
+    let sig_check_script = create_tx_script(script_code, Some(account_component_lib)).unwrap();
 
     // -------------------------------------------------------------------------
     // STEP 2: Create signature check smart contract
     // -------------------------------------------------------------------------
-    let signature_check_contract = build_multisig(&mut client, pub_keys, None).await.unwrap();
+    let multisig_wallet =
+        build_multisig(&mut client, pub_keys.clone(), Some(pub_keys.len() as u64))
+            .await
+            .unwrap();
+
+    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+
+    // Setup accounts and balances
+    let balances = vec![
+        vec![100, 0], // For account[0] => Alice 100 tokens A & B
+        vec![100, 0], // For account[1] => Bob 100 tokens A & B
+    ];
+    let (accounts, faucets) =
+        setup_accounts_and_faucets(&mut client, keystore, 2, 2, balances).await?;
+
+    // rename for clarity
+    let alice_account = accounts[0].clone();
+    let bob_account = accounts[1].clone();
+    let faucet_a = faucets[0].clone();
+    let faucet_b = faucets[1].clone();
 
     // -------------------------------------------------------------------------
-    // STEP 1: Hash & Sign Data with Each Key and Populate the Advice Map
+    // STEP 3: Fund Multisig
+    // -------------------------------------------------------------------------
+
+    let script_code =
+        fs::read_to_string(Path::new("./masm/scripts/helper_note_consume_script.masm")).unwrap();
+    let account_code = fs::read_to_string(Path::new("./masm/accounts/multisig.masm")).unwrap();
+    let library_path = "multisig::multisig";
+    let library = create_library(account_code, library_path).unwrap();
+
+    let consume_tx_script = create_tx_script(script_code, Some(library)).unwrap();
+
+    let multisig_amount = 100;
+    let _ = mint_from_faucet_for_account(
+        &mut client,
+        &multisig_wallet,
+        &faucet_a,
+        multisig_amount,
+        Some(consume_tx_script),
+    )
+    .await
+    .unwrap();
+
+    client.sync_state().await.unwrap();
+
+    let account_balance = client
+        .get_account(multisig_wallet.id())
+        .await
+        .unwrap()
+        .expect("not found");
+
+    println!(
+        "multisig bal: {:?}",
+        account_balance.account().vault().get_balance(faucet_a.id())
+    );
+
+    assert_eq!(
+        account_balance
+            .account()
+            .vault()
+            .get_balance(faucet_a.id())
+            .unwrap(),
+        multisig_amount
+    );
+
+    // -------------------------------------------------------------------------
+    // STEP 3: Compute output note
+    // -------------------------------------------------------------------------
+
+    let p2id_asset = FungibleAsset::new(faucet_a.id(), 50).unwrap();
+    let p2id_assets = vec![p2id_asset.into()];
+    let serial_num = client.rng().draw_word();
+    let p2id_output_note = create_exact_p2id_note(
+        multisig_wallet.id(),
+        alice_account.id(),
+        p2id_assets,
+        NoteType::Public,
+        ZERO,
+        serial_num,
+    )
+    .unwrap();
+
+    let p2id_id: Word = p2id_output_note.id().into();
+
+    // -------------------------------------------------------------------------
+    // STEP 3: Hash & Sign Data with Each Key and Populate the Advice Map
     // -------------------------------------------------------------------------
     // Prepare some data to hash.
-    let mut data = vec![Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)];
-    data.splice(0..0, Word::default().iter().cloned());
-    let hashed_data = Hasher::hash_elements(&data);
-    println!("digest: {:?}", hashed_data);
+    // let mut data = vec![Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)];
+    // data.splice(0..0, Word::default().iter().cloned());
+    // let hashed_data = Hasher::hash_elements(&data);
+
+    println!("p2id_id: {:?}", p2id_id);
 
     // Initialize an empty advice map.
     let mut advice_map = AdviceMap::default();
 
     let mut i = 0;
     for key in keys.iter() {
-        let signature = key.sign(hashed_data.into());
+        let signature = key.sign(p2id_id.into());
 
         let nonce = signature.nonce().to_elements();
         let s2 = signature.sig_poly();
@@ -92,7 +177,7 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
         let challenge = (digest_polynomials[0], digest_polynomials[1]);
 
         let pub_key_felts: Word = key.public_key().into();
-        let msg_felts: Word = hashed_data.into();
+        let msg_felts: Word = p2id_id.into();
 
         let mut result: Vec<Felt> = vec![
             pub_key_felts[0],
@@ -117,10 +202,28 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
         i += 1;
     }
 
+    // Add note data to AdviceMap at key [6000,0,0,0]
+    let note_key = [Felt::new(6000), ZERO, ZERO, ZERO];
+
+    let note_recipient = p2id_output_note.recipient().digest().to_vec();
+    let mut note_data: Vec<Felt> = vec![
+        p2id_output_note.metadata().tag().into(),
+        p2id_output_note.metadata().aux(),
+        p2id_output_note.metadata().note_type().into(),
+        p2id_output_note.metadata().execution_hint().into(),
+    ];
+
+    note_data.extend(note_recipient);
+    note_data.reverse();
+
+    println!("note data: {:?}", note_data);
+
+    advice_map.insert(note_key.into(), note_data);
+
     client.sync_state().await.unwrap();
 
     let tx_increment_request = TransactionRequestBuilder::new()
-        .with_custom_script(tx_script)
+        .with_custom_script(sig_check_script)
         .extend_advice_map(advice_map)
         .build()
         .unwrap();
@@ -129,7 +232,7 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
     let start = Instant::now();
 
     let tx_result = client
-        .new_transaction(signature_check_contract.id(), tx_increment_request)
+        .new_transaction(multisig_wallet.id(), tx_increment_request)
         .await
         .unwrap();
 
@@ -154,7 +257,7 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
     let total_cycles = executed_tx.measurements().total_cycles();
 
     println!("total cycles: {:?}", total_cycles);
-
+    /*
     // Submit transaction to the network
     let _ = client.submit_transaction(tx_result).await;
 
@@ -181,7 +284,7 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
             "new account state: {:?}",
             account.account().storage().get_item(0)
         );
-    }
+    } */
 
     Ok(())
 }

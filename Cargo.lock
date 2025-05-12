@@ -1295,8 +1295,6 @@ dependencies = [
 [[package]]
 name = "miden-client-tools"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3af8faf28131caeae0b515ce227582e866f01ea3fd2a1772b7c125546f30068c"
 dependencies = [
  "miden-assembly 0.13.2",
  "miden-client",

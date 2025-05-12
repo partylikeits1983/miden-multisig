@@ -6,7 +6,8 @@ use.std::crypto::dsa::rpo_falcon512
 
 # CONSTANTS
 # Reserved addresses
-const.THRESHOLD=5000
+const.THRESHOLD_KEY=5000
+const.NOTE_DATA_KEY=6000
 
 # Runtime constants
 const.LOOP_ITER=100
@@ -34,7 +35,7 @@ end
 
 # => [iterations]
 proc.verify_threshold
-    push.THRESHOLD.0.0.0
+    push.THRESHOLD_KEY.0.0.0
     # => [THRESHOLD_KEY, iterations]
 
     push.1
@@ -149,6 +150,10 @@ proc.verify_signatures_loop
 
 end
 
+proc.create_output_note
+    nop
+end
+
 # main entrypoint ->
 # OS => [number_of_iterations]
 # AS map => {0: SIG_0, 1: SIG_1, n: SIG_N}
@@ -167,9 +172,29 @@ export.exec_transaction
     exec.verify_threshold
     # => []
 
+    # At this point, all execution is authorized
+    # ______________________________________
+
+    push.NOTE_DATA_KEY.0.0.0
+
+    adv.push_mapval
+    # => [KEY]
+
+    adv_pipe
+    # => [tag, aux, note_type, execution_hint, RECIPIENT]
+
+    push.222 debug.stack drop
+
     # increment nonce to simulate state change
     push.1 exec.account::incr_nonce
 
     exec.sys::truncate_stack
     # => []
+end
+
+# Helper Functions
+
+# Helper function for consuming note (eventually will be authed)
+export.authenticate_consumption
+    push.1 exec.account::incr_nonce
 end

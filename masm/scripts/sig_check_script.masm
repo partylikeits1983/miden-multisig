@@ -1,4 +1,4 @@
-use.external_contract::signature_check_contract
+use.multisig::multisig
 use.std::sys
 
 # AS map => {0: SIG_0, 1: SIG_1, n: SIG_N}
@@ -8,7 +8,7 @@ begin
 
     push.111 debug.stack drop
 
-    call.signature_check_contract::exec_transaction
+    call.multisig::exec_transaction
 
     dropw
     exec.sys::truncate_stack
