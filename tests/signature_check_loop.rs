@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+use miden_client::transaction::{OutputNote, OutputNotes};
 use miden_client::{
     ClientError, Felt, Word, ZERO, asset::FungibleAsset, crypto::SecretKey,
     keystore::FilesystemKeyStore, note::NoteType, rpc::Endpoint,
@@ -20,7 +21,7 @@ use tokio::time::Instant;
 async fn signature_check_loop_test() -> Result<(), ClientError> {
     delete_keystore_and_store(None).await;
 
-    let endpoint = Endpoint::localhost();
+    let endpoint = Endpoint::testnet();
     let mut client = instantiate_client(endpoint, None).await.unwrap();
 
     let sync_summary = client.sync_state().await.unwrap();
@@ -50,9 +51,7 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
     }
 
     let account_code = fs::read_to_string(Path::new("./masm/accounts/multisig.masm")).unwrap();
-
     let account_component_lib = create_library(account_code, "multisig::multisig").unwrap();
-
     let sig_check_script = create_tx_script(script_code, Some(account_component_lib)).unwrap();
 
     // -------------------------------------------------------------------------
@@ -64,6 +63,12 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
             .unwrap();
 
     let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+
+    println!(
+        "multisig accountid: {:?} {:?}",
+        multisig_wallet.id().prefix(),
+        multisig_wallet.id().suffix()
+    );
 
     // Setup accounts and balances
     let balances = vec![
@@ -128,9 +133,11 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
     // STEP 3: Compute output note
     // -------------------------------------------------------------------------
 
-    let p2id_asset = FungibleAsset::new(faucet_a.id(), 50).unwrap();
+    let asset_amount = 50;    
+    let p2id_asset = FungibleAsset::new(faucet_a.id(), asset_amount).unwrap();
     let p2id_assets = vec![p2id_asset.into()];
     let serial_num = client.rng().draw_word();
+
     let p2id_output_note = create_exact_p2id_note(
         multisig_wallet.id(),
         alice_account.id(),
@@ -141,24 +148,22 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
     )
     .unwrap();
 
-    let p2id_id: Word = p2id_output_note.id().into();
+    // let p2id_id: Word = p2id_output_note.id().into();
+
+    let output_notes = OutputNotes::new(vec![OutputNote::Full(p2id_output_note.clone())]).unwrap();
+    let output_notes_commitment = output_notes.commitment();
+    println!("output_notes_commitment: {:?}", output_notes_commitment);
 
     // -------------------------------------------------------------------------
     // STEP 3: Hash & Sign Data with Each Key and Populate the Advice Map
     // -------------------------------------------------------------------------
-    // Prepare some data to hash.
-    // let mut data = vec![Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)];
-    // data.splice(0..0, Word::default().iter().cloned());
-    // let hashed_data = Hasher::hash_elements(&data);
-
-    println!("p2id_id: {:?}", p2id_id);
 
     // Initialize an empty advice map.
     let mut advice_map = AdviceMap::default();
 
     let mut i = 0;
     for key in keys.iter() {
-        let signature = key.sign(p2id_id.into());
+        let signature = key.sign(output_notes_commitment.into());
 
         let nonce = signature.nonce().to_elements();
         let s2 = signature.sig_poly();
@@ -177,7 +182,7 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
         let challenge = (digest_polynomials[0], digest_polynomials[1]);
 
         let pub_key_felts: Word = key.public_key().into();
-        let msg_felts: Word = p2id_id.into();
+        let msg_felts: Word = output_notes_commitment.into();
 
         let mut result: Vec<Felt> = vec![
             pub_key_felts[0],
@@ -205,26 +210,46 @@ async fn signature_check_loop_test() -> Result<(), ClientError> {
     // Add note data to AdviceMap at key [6000,0,0,0]
     let note_key = [Felt::new(6000), ZERO, ZERO, ZERO];
 
-    let note_recipient = p2id_output_note.recipient().digest().to_vec();
+    let mut note_asset: Vec<Felt> = vec![faucet_a.id().prefix().into(), faucet_a.id().suffix(), ZERO, Felt::new(asset_amount)];
+    note_asset.reverse();
+
+    let mut note_recipient: Vec<Felt> = p2id_output_note.recipient().digest().to_vec();
+    note_recipient.reverse();
+
     let mut note_data: Vec<Felt> = vec![
         p2id_output_note.metadata().tag().into(),
         p2id_output_note.metadata().aux(),
         p2id_output_note.metadata().note_type().into(),
         p2id_output_note.metadata().execution_hint().into(),
     ];
-
+    
     note_data.extend(note_recipient);
+    note_data.extend(note_asset);
+    
     note_data.reverse();
 
     println!("note data: {:?}", note_data);
-
     advice_map.insert(note_key.into(), note_data);
 
     client.sync_state().await.unwrap();
 
+    println!("p2id tag: {:?}", p2id_output_note.metadata().tag());
+    println!("p2id aux: {:?}", p2id_output_note.metadata().aux());
+    println!(
+        "p2id note type: {:?}",
+        p2id_output_note.metadata().note_type()
+    );
+    println!(
+        "p2id hint: {:?}",
+        p2id_output_note.metadata().execution_hint()
+    );
+    println!("recipient: {:?}", p2id_output_note.recipient().digest());
+    println!("p2id asset: {:?}", p2id_output_note.assets());
+
     let tx_increment_request = TransactionRequestBuilder::new()
         .with_custom_script(sig_check_script)
         .extend_advice_map(advice_map)
+        .with_expected_output_notes(vec![p2id_output_note])
         .build()
         .unwrap();
 

@@ -3,6 +3,7 @@ use.miden::contracts::wallets::basic->wallet
 use.miden::account
 use.std::sys
 use.std::crypto::dsa::rpo_falcon512
+use.miden::tx
 
 # CONSTANTS
 # Reserved addresses
@@ -175,6 +176,9 @@ export.exec_transaction
     # At this point, all execution is authorized
     # ______________________________________
 
+    push.111 debug.stack drop
+
+
     push.NOTE_DATA_KEY.0.0.0
 
     adv.push_mapval
@@ -183,7 +187,21 @@ export.exec_transaction
     adv_pipe
     # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
+    # clean stack val
+    movup.12 drop
+
     push.222 debug.stack drop
+
+    call.wallet::create_note
+    # => [note_idx]
+    push.333 debug.stack drop
+
+
+
+
+    exec.tx::get_output_notes_commitment
+    push.222 debug.stack drop
+
 
     # increment nonce to simulate state change
     push.1 exec.account::incr_nonce
