@@ -56,7 +56,7 @@ async fn multisig_sig_check_fails_invalid_output_commitment() -> Result<(), Clie
     let sig_check_script = create_tx_script(script_code, Some(account_component_lib)).unwrap();
 
     // -------------------------------------------------------------------------
-    // STEP 2: Create signature check smart contract
+    // STEP 2: Create multisig wallet smart contract
     // -------------------------------------------------------------------------
     let multisig_wallet =
         build_multisig(&mut client, pub_keys.clone(), Some(pub_keys.len() as u64))
