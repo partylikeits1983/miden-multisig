@@ -1,3 +1,4 @@
 /target
+/node-data
 /keystore
 *.sqlite3
