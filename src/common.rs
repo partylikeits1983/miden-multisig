@@ -1,17 +1,14 @@
 use std::{fs, path::Path};
 
 use miden_client::{
-    Client, ClientError,
+    Client, ClientError, Felt, Word, ZERO,
     account::{
         AccountBuilder, AccountStorageMode, AccountType, StorageSlot, component::BasicWallet,
     },
+    account::{StorageMap, component::AccountComponent},
+    transaction::TransactionKernel,
 };
-use miden_crypto::{Felt, Word, ZERO};
-use miden_lib::transaction::TransactionKernel;
-use miden_objects::{
-    account::{AccountComponent, StorageMap},
-    assembly::Assembler,
-};
+use miden_objects::assembly::Assembler;
 use rand::RngCore;
 
 const THRESHOLD_KEY: Word = [Felt::new(5000), ZERO, ZERO, ZERO];
@@ -24,7 +21,7 @@ pub async fn build_multisig(
     let mut init_seed = [0_u8; 32];
     client.rng().fill_bytes(&mut init_seed);
 
-    let file_path = Path::new("./masm/accounts/multisig.masm");
+    let file_path = Path::new("./masm/accounts/multisig_auth.masm");
     let account_code = fs::read_to_string(file_path).unwrap();
 
     let assembler: Assembler = TransactionKernel::assembler().with_debug_mode(true);
@@ -57,12 +54,10 @@ pub async fn build_multisig(
     .unwrap()
     .with_supports_all_types();
 
-    let anchor_block = client.get_latest_epoch_block().await.unwrap();
     let builder = AccountBuilder::new(init_seed)
-        .anchor((&anchor_block).try_into().unwrap())
         .account_type(AccountType::RegularAccountUpdatableCode)
         .storage_mode(AccountStorageMode::Public)
-        .with_component(account_component)
+        .with_auth_component(account_component)
         .with_component(BasicWallet);
 
     let (account, seed) = builder.build().unwrap();

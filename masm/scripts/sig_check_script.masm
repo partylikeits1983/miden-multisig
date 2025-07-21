@@ -8,7 +8,7 @@ begin
 
     push.111 debug.stack drop
 
-    call.multisig::exec_transaction
+    call.multisig::auth__exec_transaction
 
     dropw
     exec.sys::truncate_stack

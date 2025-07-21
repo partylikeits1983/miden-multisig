@@ -15,6 +15,7 @@ use miden_client_tools::{
 use miden_crypto::ONE;
 use miden_crypto::{FieldElement, dsa::rpo_falcon512::Polynomial, hash::rpo::Rpo256 as Hasher};
 use miden_multisig::common::build_multisig;
+use miden_objects::note::NoteDetails;
 use miden_objects::vm::AdviceMap;
 use tokio::time::Instant;
 
@@ -217,7 +218,7 @@ async fn multisig_sig_check_fails_invalid_output_commitment() -> Result<(), Clie
         result.extend_from_slice(&nonce);
 
         // Insert the final advice vector into the advice map.
-        let advice_key: Word = [Felt::new(i), Felt::ZERO, Felt::ZERO, Felt::ZERO];
+        let advice_key: Word = [Felt::new(i), ZERO, ZERO, ZERO];
         advice_map.insert(advice_key.into(), result.clone());
 
         i += 1;
@@ -252,9 +253,12 @@ async fn multisig_sig_check_fails_invalid_output_commitment() -> Result<(), Clie
     client.sync_state().await.unwrap();
 
     let tx_request = TransactionRequestBuilder::new()
-        .with_custom_script(sig_check_script)
+        .custom_script(sig_check_script)
         .extend_advice_map(advice_map)
-        .with_expected_output_notes(vec![p2id_output_note])
+        .expected_future_notes(vec![(
+            NoteDetails::from(p2id_output_note.clone()),
+            p2id_output_note.metadata().tag(),
+        )])
         .build()
         .unwrap();
 

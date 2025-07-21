@@ -1,0 +1,8 @@
+use.hasher::hashing
+
+begin
+  push.111 debug.stack drop
+
+  exec.hashing::hash_test
+
+end

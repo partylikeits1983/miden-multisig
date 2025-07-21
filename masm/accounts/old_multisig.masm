@@ -18,8 +18,8 @@ const.TEMP_PK=108
 const.MESSAGE=112
 
 # ERRORS
-const.NON_CONSTANT_MSG=1111
-const.INVALID_OUTPUT_NOTES=2222
+const.NON_CONSTANT_MSG="NON CONSTANT SIGNATURES"
+const.INVALID_OUTPUT_NOTES="INVALID OUTPUT NOTES"
 
 # => [PK]
 proc.verify_owner
@@ -156,7 +156,7 @@ end
 # main entrypoint ->
 # OS => [number_of_iterations]
 # AS map => {0: SIG_0, 1: SIG_1, n: SIG_N}
-export.exec_transaction
+export.auth__exec_transaction
     exec.verify_signatures_loop
     # => []
 
@@ -182,7 +182,7 @@ export.exec_transaction
     padw adv_loadw
     # => [tag, aux, note_type, execution_hint, RECIPIENT, ASSET]
 
-    call.wallet::create_note
+    call.tx::create_note
     # => [note_idx, ASSET]
 
     movdn.5
@@ -195,6 +195,9 @@ export.exec_transaction
     # => []
 
     exec.tx::get_output_notes_commitment
+    # => [OUTPUT_NOTES_COMMITMENT]
+
+    push.111 debug.stack drop
     # => [OUTPUT_NOTES_COMMITMENT]
 
     padw mem_loadw.MESSAGE
