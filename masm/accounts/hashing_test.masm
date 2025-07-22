@@ -1,40 +1,36 @@
 use.std::crypto::hashes::rpo
 
-
 export.hash_test
+    # h([ACCOUNT_DELTA_COMMITMENT, INPUT_NOTES_COMMITMENT, OUTPUT_NOTES_COMMITMENT, [0, 0, 0, new_nonce]])
 
-  # h([ACCOUNT_DELTA_COMMITMENT, INPUT_NOTES_COMMITMENT, OUTPUT_NOTES_COMMITMENT, [0, 0, 0, new_nonce]])
-
-
-  # exec.account_delta::compute_commitment
-  push.0.0.0.0
-  mem_storew.0
-  dropw
-
-
-  # exec.tx::get_input_notes_commitment
-  push.1.1.1.1
-  mem_storew.4
-  dropw
-
-  # exec.tx::get_output_notes_commitment
-  push.2.2.2.2
-  mem_storew.8
-  dropw
-
-  # SALT
-  push.3.3.3.3
-  mem_storew.12
-  dropw
-
-# ___ Hashing ____
-
-  push.16.0
-  exec.rpo::hash_memory_words
-
-  debug.stack
-
-  repeat.4
+    # exec.account_delta::compute_commitment
+    push.0.0.0.0
+    mem_storew.0
     dropw
-  end
+
+    # exec.tx::get_input_notes_commitment
+    push.1.1.1.1
+    mem_storew.4
+    dropw
+
+    # exec.tx::get_output_notes_commitment
+    push.2.2.2.2
+    mem_storew.8
+    dropw
+
+    # SALT
+    push.3.3.3.3
+    mem_storew.12
+    dropw
+
+    # ___ Hashing ____
+
+    push.16.0
+    exec.rpo::hash_memory_words
+
+    debug.stack
+
+    repeat.4
+        dropw
+    end
 end

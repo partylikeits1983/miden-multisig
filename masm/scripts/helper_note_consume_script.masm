@@ -1,4 +1,5 @@
 use.multisig::multisig
 begin
-    exec.multisig::auth__authenticate_consumption
+    # placeholder
+    push.1 drop
 end

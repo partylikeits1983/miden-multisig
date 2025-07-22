@@ -1,9 +1,9 @@
-use.miden::contracts::wallets::basic->wallet
 use.miden::account
-use.miden::note
 use.miden::tx
+# use.miden::account_delta
 
 use.std::crypto::dsa::rpo_falcon512
+use.std::crypto::hashes::rpo
 use.std::sys
 
 # CONSTANTS
@@ -22,6 +22,7 @@ const.NON_CONSTANT_MSG="NON CONSTANT SIGNATURES"
 const.INVALID_OUTPUT_NOTES="INVALID OUTPUT NOTES"
 
 # => [PK]
+
 proc.verify_owner
     push.1
     # => [index, PK]
@@ -37,6 +38,7 @@ proc.verify_owner
 end
 
 # => [iterations]
+
 proc.verify_threshold
     push.THRESHOLD_KEY.0.0.0
     # => [THRESHOLD_KEY, iterations]
@@ -44,8 +46,12 @@ proc.verify_threshold
     push.1
     # => [index, THRESHOLD_KEY, iterations]
 
+    push.434 debug.stack drop
+
     exec.account::get_map_item
     # => [THRESHOLD_VALUE, iterations]
+
+    push.555 debug.stack drop
 
     drop drop drop
     # => [threshold, iterations]
@@ -56,6 +62,7 @@ end
 
 # Assert that all the messages of the signatures are the same
 # => [MSG, PK]
+
 proc.verify_constant_msg
     mem_load.LOOP_ITER
     # => [iteration, MSG, PK]
@@ -71,6 +78,7 @@ proc.verify_constant_msg
 
         mem_storew.MESSAGE
         # => [MSG, PK]
+
     else
         # => [MSG, PK]
 
@@ -157,8 +165,21 @@ end
 # OS => [number_of_iterations]
 # AS map => {0: SIG_0, 1: SIG_1, n: SIG_N}
 export.auth__exec_transaction
+
+    # Verifying owner signautres
+    # ______________________________________
+
+    # @dev this is the number of signatures to verify
+    # technically this could always be the threshold value
+    # since this would be the minimum number of signatures needed to check
+    # 0 = 1 iteration
+    push.2
+    # => [iterations-1]
+
     exec.verify_signatures_loop
     # => []
+
+    push.111 debug.stack drop
 
     mem_load.LOOP_ITER
     # => [iterations-1]
@@ -167,20 +188,40 @@ export.auth__exec_transaction
     push.1 add
     # => [iterations]
 
+    push.222 debug.stack drop
+
     exec.verify_threshold
     # => []
 
-    # At this point, all execution is authorized
+    push.111 debug.stack drop
+
+    # Signatures Verified to be owner signatures
     # ______________________________________
 
-    exec.tx::get_output_notes_commitment
-    # => [OUTPUT_NOTES_COMMITMENT]
+    # exec.account_delta::compute_commitment
+    push.1.1.1.1
+    # => [ACCOUNT_DELTA_COMMITMENT]
 
-    push.111 debug.stack drop
-    # => [OUTPUT_NOTES_COMMITMENT]
+    exec.tx::get_input_notes_commitment
+    # => [INPUT_NOTES_COMMITMENT, ACCOUNT_DELTA_COMMITMENT]
+
+    exec.tx::get_output_notes_commitment
+    # => [OUTPUT_NOTES_COMMITMENT, INPUT_NOTES_COMMITMENT, ACCOUNT_DELTA_COMMITMENT]
+
+    # TODO: lookup salt from adviceProvider
+    push.2.2.2.2
+    # => [SALT, OUTPUT_NOTES_COMMITMENT, INPUT_NOTES_COMMITMENT, ACCOUNT_DELTA_COMMITMENT]
+
+    mem_storew.12 dropw mem_storew.8 dropw mem_storew.4 dropw mem_storew.0 dropw
+
+    push.16.0
+    exec.rpo::hash_memory_words
+    # => [DIGEST]
 
     padw mem_loadw.MESSAGE
-    # => [MSG, OUTPUT_NOTES_COMMITMENT]
+    # => [MSG, DIGEST]
+
+    push.555 debug.stack drop
 
     assert_eqw.err=INVALID_OUTPUT_NOTES
 

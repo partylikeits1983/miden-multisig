@@ -111,6 +111,8 @@ async fn multi_sig_consume_note() -> Result<(), ClientError> {
         OutputNote::Full(note) => note.clone(),
         _ => panic!("Expected full minted note"),
     };
+    let account_delta_commitment =
+        Word::from([Felt::new(1), Felt::new(1), Felt::new(1), Felt::new(1)]);
 
     let input_notes = OutputNotes::new(vec![OutputNote::Full(minted_note.clone())]).unwrap();
     let input_notes_commitment = input_notes.commitment();
@@ -120,40 +122,18 @@ async fn multi_sig_consume_note() -> Result<(), ClientError> {
     let output_notes_commitment = output_notes.commitment();
     println!("output_notes_commitment: {:?}", output_notes_commitment);
 
-    let consume_req = TransactionRequestBuilder::new()
-        .unauthenticated_input_notes([(minted_note, None)])
-        .custom_script(consume_tx_script)
-        .build()?;
+    let salt = Word::from([Felt::new(2), Felt::new(2), Felt::new(2), Felt::new(2)]);
 
-    let consume_exec = client
-        .new_transaction(multisig_wallet.id(), consume_req)
-        .await
-        .unwrap();
+    // Compute the same hash as in MASM: hash([ACCOUNT_DELTA_COMMITMENT, INPUT_NOTES_COMMITMENT, OUTPUT_NOTES_COMMITMENT, SALT])
+    let mut hash_input = vec![];
+    hash_input.extend(account_delta_commitment);
+    hash_input.extend(input_notes_commitment);
+    hash_input.extend(output_notes_commitment);
+    hash_input.extend(salt);
 
-    client.submit_transaction(consume_exec.clone()).await?;
-    client.sync_state().await?;
+    let transaction_message_digest = Hasher::hash_elements(&hash_input);
 
-    // -------------------------------------------------------------------------
-    // STEP 4: Compute output note
-    // -------------------------------------------------------------------------
-    let asset_amount = 50;
-    let p2id_asset = FungibleAsset::new(faucet_a.id(), asset_amount).unwrap();
-    let p2id_assets = vec![p2id_asset.into()];
-    let serial_num = client.rng().draw_word();
-
-    let p2id_output_note = create_exact_p2id_note(
-        multisig_wallet.id(),
-        alice_account.id(),
-        p2id_assets,
-        NoteType::Public,
-        ZERO,
-        serial_num,
-    )
-    .unwrap();
-
-    let output_notes = OutputNotes::new(vec![OutputNote::Full(p2id_output_note.clone())]).unwrap();
-    let output_notes_commitment = output_notes.commitment();
-    println!("output_notes_commitment: {:?}", output_notes_commitment);
+    println!("digest: {:?}", Word::from(transaction_message_digest));
 
     // -------------------------------------------------------------------------
     // STEP 5: Hash & Sign Data with Each Key and Populate the Advice Map
@@ -163,7 +143,7 @@ async fn multi_sig_consume_note() -> Result<(), ClientError> {
 
     let mut i = 0;
     for key in keys.iter() {
-        let signature = key.sign(output_notes_commitment.into());
+        let signature = key.sign(transaction_message_digest.into());
 
         let nonce = signature.nonce().to_elements();
         let s2 = signature.sig_poly();
@@ -182,7 +162,7 @@ async fn multi_sig_consume_note() -> Result<(), ClientError> {
         let challenge = (digest_polynomials[0], digest_polynomials[1]);
 
         let pub_key_felts: Word = key.public_key().into();
-        let msg_felts: Word = output_notes_commitment.into();
+        let msg_felts: Word = transaction_message_digest.into();
 
         let mut result: Vec<Felt> = vec![
             pub_key_felts[0],
@@ -207,102 +187,19 @@ async fn multi_sig_consume_note() -> Result<(), ClientError> {
         i += 1;
     }
 
-    // Add note data to AdviceMap at key [6000,0,0,0]
-    let note_key = [Felt::new(6000), ZERO, ZERO, ZERO];
-
-    let note_asset: Vec<Felt> = vec![
-        faucet_a.id().prefix().into(),
-        faucet_a.id().suffix(),
-        ZERO,
-        Felt::new(asset_amount),
-    ];
-
-    let mut note_recipient: Vec<Felt> = p2id_output_note.recipient().digest().to_vec();
-    note_recipient.reverse();
-
-    let mut note_data: Vec<Felt> = vec![
-        p2id_output_note.metadata().tag().into(),
-        p2id_output_note.metadata().aux(),
-        p2id_output_note.metadata().note_type().into(),
-        p2id_output_note.metadata().execution_hint().into(),
-    ];
-
-    note_data.extend(note_recipient);
-    note_data.extend(note_asset);
-    note_data.reverse();
-
-    advice_map.insert(note_key.into(), note_data);
-
-    client.sync_state().await.unwrap();
-
-    let tx_request = TransactionRequestBuilder::new()
-        .custom_script(sig_check_script)
+    let consume_req = TransactionRequestBuilder::new()
+        .unauthenticated_input_notes([(minted_note, None)])
         .extend_advice_map(advice_map)
-        .expected_future_notes(vec![(
-            NoteDetails::from(p2id_output_note.clone()),
-            p2id_output_note.metadata().tag(),
-        )])
-        .build()
-        .unwrap();
+        .custom_script(consume_tx_script)
+        .build()?;
 
-    // BEGIN TIMING PROOF GENERATION
-    let start = Instant::now();
-
-    let tx_result = client
-        .new_transaction(multisig_wallet.id(), tx_request)
+    let consume_exec = client
+        .new_transaction(multisig_wallet.id(), consume_req)
         .await
         .unwrap();
 
-    println!("tx result: {:?}", tx_result.account_delta());
-
-    // -------------------------------------------------------------------------
-    // Benchmark Performance
-    // -------------------------------------------------------------------------
-    // Calculate the elapsed time for proof generation
-    let duration = start.elapsed();
-    println!("multisig verify proof generation time: {:?}", duration);
-    println!(
-        "time per pub key recovery: {:?}",
-        duration / number_of_keys.try_into().unwrap()
-    );
-
-    let tx_id = tx_result.executed_transaction().id();
-    println!(
-        "View transaction on MidenScan: https://testnet.midenscan.com/tx/{:?}",
-        tx_id
-    );
-
-    let executed_tx: &miden_client::transaction::ExecutedTransaction =
-        tx_result.executed_transaction();
-    let total_cycles = executed_tx.measurements().total_cycles();
-
-    println!("account delta: {:?}", executed_tx.account_delta());
-    println!("total cycles: {:?}", total_cycles);
-
-    // Submit transaction to the network
-    let _ = client.submit_transaction(tx_result).await;
-
-    // Calculate the time for complete onchain settlement
-    let complete_settlement_time = start.elapsed();
-    println!(
-        "multisig verify tx settled in: {:?}",
-        complete_settlement_time
-    );
-    println!(
-        "time per pub key recovery: {:?}",
-        complete_settlement_time / number_of_keys.try_into().unwrap()
-    );
-
-    client.sync_state().await.unwrap();
-
-    let new_account_state = client.get_account(multisig_wallet.id()).await.unwrap();
-
-    if let Some(account) = &new_account_state {
-        println!(
-            "new account state: {:?}",
-            account.account().storage().get_item(0)
-        );
-    }
+    client.submit_transaction(consume_exec.clone()).await?;
+    client.sync_state().await?;
 
     Ok(())
 }
@@ -446,12 +343,30 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     // -------------------------------------------------------------------------
     // STEP 5: Hash & Sign Data with Each Key and Populate the Advice Map
     // -------------------------------------------------------------------------
+    // Compute the transaction message digest (same as in MASM)
+    let account_delta_commitment =
+        Word::from([Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)]);
+
+    let input_notes_commitment =
+        Word::from([Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)]); // Empty for this test
+
+    let salt = Word::from([Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)]);
+
+    // Compute the same hash as in MASM: hash([ACCOUNT_DELTA_COMMITMENT, INPUT_NOTES_COMMITMENT, OUTPUT_NOTES_COMMITMENT, SALT])
+    let mut hash_input = vec![];
+    hash_input.extend(account_delta_commitment);
+    hash_input.extend(input_notes_commitment);
+    hash_input.extend(output_notes_commitment);
+    hash_input.extend(salt);
+
+    let transaction_message_digest = Hasher::hash_elements(&hash_input);
+
     // Initialize an empty advice map.
     let mut advice_map = AdviceMap::default();
 
     let mut i = 0;
     for key in keys.iter() {
-        let signature = key.sign(output_notes_commitment.into());
+        let signature = key.sign(transaction_message_digest.into());
 
         let nonce = signature.nonce().to_elements();
         let s2 = signature.sig_poly();
@@ -470,7 +385,7 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
         let challenge = (digest_polynomials[0], digest_polynomials[1]);
 
         let pub_key_felts: Word = key.public_key().into();
-        let msg_felts: Word = output_notes_commitment.into();
+        let msg_felts: Word = transaction_message_digest.into();
 
         let mut result: Vec<Felt> = vec![
             pub_key_felts[0],

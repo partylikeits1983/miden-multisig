@@ -22,6 +22,7 @@ const.NON_CONSTANT_MSG="NON CONSTANT SIGNATURES"
 const.INVALID_OUTPUT_NOTES="INVALID OUTPUT NOTES"
 
 # => [PK]
+
 proc.verify_owner
     push.1
     # => [index, PK]
@@ -37,6 +38,7 @@ proc.verify_owner
 end
 
 # => [iterations]
+
 proc.verify_threshold
     push.THRESHOLD_KEY.0.0.0
     # => [THRESHOLD_KEY, iterations]
@@ -56,6 +58,7 @@ end
 
 # Assert that all the messages of the signatures are the same
 # => [MSG, PK]
+
 proc.verify_constant_msg
     mem_load.LOOP_ITER
     # => [iteration, MSG, PK]
@@ -71,6 +74,7 @@ proc.verify_constant_msg
 
         mem_storew.MESSAGE
         # => [MSG, PK]
+
     else
         # => [MSG, PK]
 
