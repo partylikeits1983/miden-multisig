@@ -100,6 +100,6 @@ async fn basic_hashing_test() -> Result<(), ClientError> {
     let hash = Hasher::hash_elements(&hash_input);
 
     println!("hash: {:?}", hash);
-
+    println!("hash input: {:?}", hash_input);
     Ok(())
 }

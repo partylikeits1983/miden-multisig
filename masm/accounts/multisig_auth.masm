@@ -46,12 +46,8 @@ proc.verify_threshold
     push.1
     # => [index, THRESHOLD_KEY, iterations]
 
-    push.434 debug.stack drop
-
     exec.account::get_map_item
     # => [THRESHOLD_VALUE, iterations]
-
-    push.555 debug.stack drop
 
     drop drop drop
     # => [threshold, iterations]
@@ -179,8 +175,6 @@ export.auth__exec_transaction
     exec.verify_signatures_loop
     # => []
 
-    push.111 debug.stack drop
-
     mem_load.LOOP_ITER
     # => [iterations-1]
 
@@ -188,12 +182,8 @@ export.auth__exec_transaction
     push.1 add
     # => [iterations]
 
-    push.222 debug.stack drop
-
     exec.verify_threshold
     # => []
-
-    push.111 debug.stack drop
 
     # Signatures Verified to be owner signatures
     # ______________________________________
@@ -213,6 +203,8 @@ export.auth__exec_transaction
     # => [SALT, OUTPUT_NOTES_COMMITMENT, INPUT_NOTES_COMMITMENT, ACCOUNT_DELTA_COMMITMENT]
 
     mem_storew.12 dropw mem_storew.8 dropw mem_storew.4 dropw mem_storew.0 dropw
+
+    debug.mem.0.16
 
     push.16.0
     exec.rpo::hash_memory_words

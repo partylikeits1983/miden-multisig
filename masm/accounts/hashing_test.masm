@@ -28,7 +28,7 @@ export.hash_test
     push.16.0
     exec.rpo::hash_memory_words
 
-    debug.stack
+    debug.stack debug.mem.0.16
 
     repeat.4
         dropw
