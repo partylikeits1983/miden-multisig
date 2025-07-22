@@ -13,11 +13,10 @@ use miden_client_tools::{
     instantiate_client, mint_from_faucet_for_account, setup_accounts_and_faucets,
 };
 use miden_crypto::ONE;
-use miden_crypto::{FieldElement, dsa::rpo_falcon512::Polynomial, hash::rpo::Rpo256 as Hasher};
+use miden_crypto::{dsa::rpo_falcon512::Polynomial, hash::rpo::Rpo256 as Hasher};
 use miden_multisig::common::build_multisig;
 use miden_objects::note::NoteDetails;
 use miden_objects::vm::AdviceMap;
-use tokio::time::Instant;
 
 #[tokio::test]
 async fn multisig_sig_check_fails_invalid_output_commitment() -> Result<(), ClientError> {

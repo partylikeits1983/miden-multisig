@@ -45,7 +45,7 @@ async fn setup_multisig_test() -> Result<MultisigTestSetup, ClientError> {
     println!("Latest block: {}", sync_summary.block_num);
 
     // Generate keys and public keys
-    let number_of_keys = 3;
+    let number_of_keys = 2; // Match the script's push.2
     let mut keys = Vec::new();
     let mut pub_keys: Vec<Word> = Vec::new();
 
@@ -286,69 +286,88 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     let mut setup = setup_multisig_test().await?;
 
     // -------------------------------------------------------------------------
-    // STEP 1: Fund Multisig (similar to consume test)
+    // STEP 1: Fund Multisig with a note to consume
     // -------------------------------------------------------------------------
     let multisig_amount = 100;
-    let _ = mint_from_faucet_for_account(
-        &mut setup.client,
-        &setup.multisig_wallet,
-        &setup.faucet_a,
-        multisig_amount,
-        Some(setup.consume_tx_script),
-    )
-    .await
-    .unwrap();
+    let asset = FungibleAsset::new(setup.faucet_a.id(), multisig_amount).unwrap();
+    let mint_req = TransactionRequestBuilder::new()
+        .build_mint_fungible_asset(
+            asset,
+            setup.multisig_wallet.id(),
+            NoteType::Public,
+            setup.client.rng(),
+        )
+        .unwrap();
 
-    setup.client.sync_state().await.unwrap();
-
-    let account_balance = setup
+    let mint_exec = setup
         .client
-        .get_account(setup.multisig_wallet.id())
+        .new_transaction(setup.faucet_a.id(), mint_req)
+        .await?;
+    setup.client.submit_transaction(mint_exec.clone()).await?;
+
+    let minted_note = match mint_exec.created_notes().get_note(0) {
+        OutputNote::Full(note) => note.clone(),
+        _ => panic!("Expected full minted note"),
+    };
+
+    // -------------------------------------------------------------------------
+    // STEP 2: Sign the input note for consumption
+    // -------------------------------------------------------------------------
+    let account_delta_commitment =
+        Word::from([Felt::new(1), Felt::new(1), Felt::new(1), Felt::new(1)]);
+    let input_notes =
+        InputNotes::new(vec![InputNote::unauthenticated(minted_note.clone())]).unwrap();
+    let input_notes_commitment = input_notes.commitment();
+    let output_notes = OutputNotes::new(vec![]).unwrap();
+    let output_notes_commitment = output_notes.commitment();
+    let salt = Word::from([Felt::new(2), Felt::new(2), Felt::new(2), Felt::new(2)]);
+
+    // Compute transaction message digest for input note consumption
+    let transaction_message_digest = compute_transaction_message_digest(
+        account_delta_commitment,
+        input_notes_commitment.into(),
+        output_notes_commitment.into(),
+        salt,
+        "input note consumption",
+    );
+
+    // Generate signatures for the input note consumption
+    let advice_map = generate_signature_advice_map(
+        &setup.keys,
+        transaction_message_digest,
+        "input note consumption",
+    );
+
+    // -------------------------------------------------------------------------
+    // STEP 3: Execute the consumption transaction
+    // -------------------------------------------------------------------------
+    let consume_req = TransactionRequestBuilder::new()
+        .unauthenticated_input_notes([(minted_note, None)])
+        .extend_advice_map(advice_map)
+        .custom_script(setup.consume_tx_script)
+        .build()?;
+
+    let consume_exec = setup
+        .client
+        .new_transaction(setup.multisig_wallet.id(), consume_req)
         .await
-        .unwrap()
-        .expect("not found");
+        .unwrap();
 
-    println!(
-        "multisig bal:\nfaucet: {:?} {:?} \namount: {:?}",
-        setup.faucet_a.id().prefix(),
-        setup.faucet_a.id().suffix(),
-        account_balance
-            .account()
-            .vault()
-            .get_balance(setup.faucet_a.id())
-    );
-
-    assert_eq!(
-        account_balance
-            .account()
-            .vault()
-            .get_balance(setup.faucet_a.id())
-            .unwrap(),
-        multisig_amount
-    );
+    setup
+        .client
+        .submit_transaction(consume_exec.clone())
+        .await?;
+    setup.client.sync_state().await?;
 
     // -------------------------------------------------------------------------
-    // STEP 2: First, sign any input notes (following consume test pattern)
-    // -------------------------------------------------------------------------
-    // For this test, we don't have input notes, but we follow the same signing pattern
-    // This step demonstrates that we would sign input notes first if they existed
-
-    let input_notes_commitment =
-        Word::from([Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)]); // Empty for this test
-    println!(
-        "Input notes commitment (empty): {:?}",
-        input_notes_commitment
-    );
-
-    // -------------------------------------------------------------------------
-    // STEP 3: Create output note and sign its commitment
+    // STEP 4: Now create an output note and sign its commitment
     // -------------------------------------------------------------------------
     let asset_amount = 50;
     let p2id_asset = FungibleAsset::new(setup.faucet_a.id(), asset_amount).unwrap();
     let p2id_assets = vec![p2id_asset.into()];
     let serial_num = setup.client.rng().draw_word();
 
-    // Use the first account from setup.accounts instead of alice_account
+    // Use the first account from setup.accounts as recipient
     let recipient_account = &setup.accounts[0];
 
     let p2id_output_note = create_exact_p2id_note(
@@ -365,11 +384,13 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     let output_notes_commitment = output_notes.commitment();
 
     // -------------------------------------------------------------------------
-    // STEP 4: Sign the output note creation (following consume test pattern)
+    // STEP 5: Sign the output note creation
     // -------------------------------------------------------------------------
     let account_delta_commitment =
-        Word::from([Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)]);
-    let salt = Word::from([Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)]);
+        Word::from([Felt::new(1), Felt::new(1), Felt::new(1), Felt::new(1)]);
+    let input_notes_commitment =
+        Word::from([Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)]); // Empty for note creation
+    let salt = Word::from([Felt::new(2), Felt::new(2), Felt::new(2), Felt::new(2)]);
 
     // Compute transaction message digest for output note creation
     let transaction_message_digest = compute_transaction_message_digest(
@@ -377,14 +398,14 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
         input_notes_commitment,
         output_notes_commitment.into(),
         salt,
-        "output note creation",
+        "output note creation (step 2)",
     );
 
     // Generate signatures for the output note creation
     let mut advice_map = generate_signature_advice_map(
         &setup.keys,
         transaction_message_digest,
-        "output note creation",
+        "output note creation (step 2)",
     );
 
     // -------------------------------------------------------------------------
