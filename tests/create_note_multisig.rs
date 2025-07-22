@@ -45,7 +45,7 @@ async fn setup_multisig_test() -> Result<MultisigTestSetup, ClientError> {
     println!("Latest block: {}", sync_summary.block_num);
 
     // Generate keys and public keys
-    let number_of_keys = 2; // Match the script's push.2
+    let number_of_keys = 3;
     let mut keys = Vec::new();
     let mut pub_keys: Vec<Word> = Vec::new();
 
@@ -286,7 +286,7 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     let mut setup = setup_multisig_test().await?;
 
     // -------------------------------------------------------------------------
-    // STEP 1: Fund Multisig with a note to consume
+    // STEP 1: Fund Multisig with a note to consume (same as consume test)
     // -------------------------------------------------------------------------
     let multisig_amount = 100;
     let asset = FungibleAsset::new(setup.faucet_a.id(), multisig_amount).unwrap();
@@ -311,7 +311,7 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     };
 
     // -------------------------------------------------------------------------
-    // STEP 2: Sign the input note for consumption
+    // STEP 2: First consume the input note (exactly like multi_sig_consume_note)
     // -------------------------------------------------------------------------
     let account_delta_commitment =
         Word::from([Felt::new(1), Felt::new(1), Felt::new(1), Felt::new(1)]);
@@ -328,19 +328,17 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
         input_notes_commitment.into(),
         output_notes_commitment.into(),
         salt,
-        "input note consumption",
+        "input note consumption (step 1)",
     );
 
     // Generate signatures for the input note consumption
     let advice_map = generate_signature_advice_map(
         &setup.keys,
         transaction_message_digest,
-        "input note consumption",
+        "input note consumption (step 1)",
     );
 
-    // -------------------------------------------------------------------------
-    // STEP 3: Execute the consumption transaction
-    // -------------------------------------------------------------------------
+    // Execute the consumption transaction
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes([(minted_note, None)])
         .extend_advice_map(advice_map)
@@ -360,7 +358,7 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     setup.client.sync_state().await?;
 
     // -------------------------------------------------------------------------
-    // STEP 4: Now create an output note and sign its commitment
+    // STEP 3: Now create an output note and sign its commitment
     // -------------------------------------------------------------------------
     let asset_amount = 50;
     let p2id_asset = FungibleAsset::new(setup.faucet_a.id(), asset_amount).unwrap();
@@ -384,7 +382,7 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     let output_notes_commitment = output_notes.commitment();
 
     // -------------------------------------------------------------------------
-    // STEP 5: Sign the output note creation
+    // STEP 4: Sign the output note creation
     // -------------------------------------------------------------------------
     let account_delta_commitment =
         Word::from([Felt::new(1), Felt::new(1), Felt::new(1), Felt::new(1)]);
