@@ -21,8 +21,8 @@ pub async fn build_multisig(
     let mut init_seed = [0_u8; 32];
     client.rng().fill_bytes(&mut init_seed);
 
-    let file_path = Path::new("./masm/accounts/multisig_auth.masm");
-    let account_code = fs::read_to_string(file_path).unwrap();
+    let file_path = Path::new("./masm/auth/multisig_auth.masm");
+    let auth_component_code = fs::read_to_string(file_path).unwrap();
 
     let assembler: Assembler = TransactionKernel::assembler().with_debug_mode(true);
 
@@ -46,8 +46,8 @@ pub async fn build_multisig(
 
     let storage_slot_map = StorageSlot::Map(storage_map.clone());
 
-    let account_component = AccountComponent::compile(
-        account_code.clone(),
+    let auth_component = AccountComponent::compile(
+        auth_component_code.clone(),
         assembler.clone(),
         vec![empty_storage_slot, storage_slot_map],
     )
@@ -57,7 +57,7 @@ pub async fn build_multisig(
     let builder = AccountBuilder::new(init_seed)
         .account_type(AccountType::RegularAccountUpdatableCode)
         .storage_mode(AccountStorageMode::Public)
-        .with_auth_component(account_component)
+        .with_auth_component(auth_component)
         .with_component(BasicWallet);
 
     let (account, seed) = builder.build().unwrap();

@@ -10,12 +10,11 @@ use miden_client::{
 use miden_client::crypto::FeltRng;
 use miden_client_tools::{
     create_exact_p2id_note, create_library, create_tx_script, delete_keystore_and_store,
-    instantiate_client, mint_from_faucet_for_account, setup_accounts_and_faucets,
+    instantiate_client, setup_accounts_and_faucets,
 };
 use miden_crypto::{dsa::rpo_falcon512::Polynomial, hash::rpo::Rpo256 as Hasher};
 use miden_multisig::common::build_multisig;
 use miden_objects::account::Account;
-use miden_objects::note::NoteDetails;
 use miden_objects::vm::AdviceMap;
 use tokio::time::Instant;
 
@@ -61,7 +60,7 @@ async fn setup_multisig_test() -> Result<MultisigTestSetup, ClientError> {
     // Create scripts
     let script_code =
         fs::read_to_string(Path::new("./masm/scripts/sig_check_script.masm")).unwrap();
-    let account_code = fs::read_to_string(Path::new("./masm/accounts/multisig_auth.masm")).unwrap();
+    let account_code = fs::read_to_string(Path::new("./masm/auth/multisig_auth.masm")).unwrap();
     let account_component_lib = create_library(account_code.clone(), "multisig::multisig").unwrap();
     let sig_check_script = create_tx_script(script_code, Some(account_component_lib)).unwrap();
 
@@ -342,7 +341,6 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes([(minted_note, None)])
         .extend_advice_map(advice_map)
-        .custom_script(setup.consume_tx_script)
         .build()?;
 
     let consume_exec = setup
@@ -378,22 +376,21 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     )
     .unwrap();
 
-    let output_notes = OutputNotes::new(vec![OutputNote::Full(p2id_output_note.clone())]).unwrap();
-    let output_notes_commitment = output_notes.commitment();
-
     // -------------------------------------------------------------------------
     // STEP 4: Sign the output note creation
     // -------------------------------------------------------------------------
     let account_delta_commitment =
         Word::from([Felt::new(1), Felt::new(1), Felt::new(1), Felt::new(1)]);
-    let input_notes_commitment =
-        Word::from([Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)]); // Empty for note creation
+    let input_notes: InputNotes<InputNote> = InputNotes::new(vec![]).unwrap();
+    let input_notes_commitment = input_notes.commitment();
+    let output_notes = OutputNotes::new(vec![OutputNote::Full(p2id_output_note.clone())]).unwrap();
+    let output_notes_commitment = output_notes.commitment();
     let salt = Word::from([Felt::new(2), Felt::new(2), Felt::new(2), Felt::new(2)]);
 
     // Compute transaction message digest for output note creation
     let transaction_message_digest = compute_transaction_message_digest(
         account_delta_commitment,
-        input_notes_commitment,
+        input_notes_commitment.into(),
         output_notes_commitment.into(),
         salt,
         "output note creation (step 2)",
@@ -440,12 +437,8 @@ async fn multisig_note_creation_success() -> Result<(), ClientError> {
     setup.client.sync_state().await.unwrap();
 
     let tx_request = TransactionRequestBuilder::new()
-        .custom_script(setup.sig_check_script)
         .extend_advice_map(advice_map)
-        .expected_future_notes(vec![(
-            NoteDetails::from(p2id_output_note.clone()),
-            p2id_output_note.metadata().tag(),
-        )])
+        .own_output_notes(vec![OutputNote::Full(p2id_output_note)])
         .build()
         .unwrap();
 
