@@ -19,7 +19,7 @@ const.MESSAGE=112
 
 # ERRORS
 const.NON_CONSTANT_MSG="NON CONSTANT SIGNATURES"
-const.INVALID_OUTPUT_NOTES="INVALID OUTPUT NOTES"
+const.INVALID_SIGNATURE="SIG DOES NOT MATCH DIGEST"
 
 # => [PK]
 
@@ -157,6 +157,37 @@ proc.verify_signatures_loop
 
 end
 
+# => [MSG]
+proc.replay_protection.4
+
+    dupw loc_storew.0 dropw
+
+    push.1
+    # => [index, MSG]
+
+    exec.account::get_map_item
+    # => [LOOKUP_VAL]
+
+    padw 
+    # => [EMPTY_WORD, LOOKUP_VAL]
+
+    assert_eqw
+    # => []
+
+    push.1.1.1.1
+
+    loc_loadw.0
+
+    push.1
+    # => [index, KEY, VALUE]
+
+    # Setting the key value pair in the map
+    exec.account::set_map_item
+
+    dropw dropw dropw dropw
+
+end
+
 # main entrypoint ->
 # OS => [number_of_iterations]
 # AS map => {0: SIG_0, 1: SIG_1, n: SIG_N}
@@ -215,7 +246,10 @@ export.auth__exec_transaction
 
     push.555 debug.stack drop
 
-    assert_eqw.err=INVALID_OUTPUT_NOTES
+    assert_eqw.err=INVALID_SIGNATURE
+
+
+    exec.replay_protection
 
     # increment nonce
     push.1 exec.account::incr_nonce
